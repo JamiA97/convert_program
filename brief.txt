@@ -1,0 +1,182 @@
+BRIEF: 
+Currently we have a program 'scmap.py' which reads compressor maps in the '.fae' format and can be used to scale those maps. 
+We want to add some further functionality. 
+From 'scmap.py' you only need to take the part of the code used for reading and writing the map format. 
+Note the .fae format uses flow in Cubic Feet Per Minute (CFM) we should convert that when plotting to m.t^0.5/p we do this by dividing CFM by 10.323
+You will add a gui front end which is highly presentable and well formatted. With the following features: 
+1. A file manager to allow user to select the compressor map they want. 
+2. A drop down which allows the user to select from a range of generic operating points (see tables below) 
+3. The lower part of the app will plot a compressor map, the main plot will be Flow (x axis) vs Pressure Ratio (y axis), you will plot the compressor map data as a series of constant speed lines. You will add a routine to draw a boundary around the data points to represent the outline of the map. You will then add contours of iso efficiency using methods learned from the python code snippets below, you will generate a polynomial surface fit as outlined and use this to create iso contours and to do the interpolation for the efficiency of the generic points. You will plot the figure with the map and add a table where the generic points are lists in flow / pressure ratio and the interpolated efficiency. You will also calculate an averaged efficiency based on wieghting given.
+4. You will add a function for the user to save the output data table for reference. 
+5. The iso contours should be adjustable, i.e. the user can determine the upper and lower bounds, and the step, you will add labels to the contours for reference and the contours will be lines which are thin and coloured grey. 
+
+GENERIC POINT DATA - The generic point data below is given as the percentage of the max flow and pressure ratio, i.e. a value of 0.7 means this is 70% of the max flow. 
+You will need to find the max flow and pressure ratio in the input data file. 
+
+HD_WG
+Flow    PR    Weight
+0.7     0.7     0.3
+0.6     0.6     0.3 
+0.5     0.4     0.4
+
+MD_WG
+Flow    PR    Weight
+0.7     0.7     0.3
+0.5     0.6     0.3 
+0.4    0.4     0.4
+
+
+
+BELOW ARE SOME HELPFUL PYTHON SNIPPETS
+
+
+
+import json
+import numpy as np
+import logging
+from scipy.interpolate import RegularGridInterpolator
+from sklearn.preprocessing import PolynomialFeatures
+from sklearn.linear_model import LinearRegression
+from scipy.interpolate import UnivariateSpline
+import matplotlib.pyplot as plt
+
+# The below function fits a smooth polynomial surface to flow, pressure ratio, efficiency data for a compressor map. 
+
+def _fit_efficiency_regression(compressor_data):
+    """Fit best-degree polynomial regressor for Efficiency(flow, PR) with RMSE tracking."""
+    speed_lines = compressor_data['speed_lines']
+    flow_vals, pr_vals, eff_vals = [], [], []
+    for line in speed_lines:
+        for pt in line['data']:
+            #flow_vals.append(pt['mass_flow'])
+            flow_vals.append(pt['flow_cfm'])
+            pr_vals.append(pt['PR'])
+            eff_vals.append(pt['Efficiency'])
+    X = np.vstack([flow_vals, pr_vals]).T
+    y = np.array(eff_vals)
+
+    best_rmse = np.inf
+    best_model = None
+    best_poly = None
+    best_deg = None
+    for deg in range(2, 6):
+        poly = PolynomialFeatures(deg)
+        Xp = poly.fit_transform(X)
+        model = LinearRegression().fit(Xp, y)
+        preds = model.predict(Xp)
+        rmse = np.sqrt(np.mean((preds - y)**2))
+        logger.debug("Degree %d RMSE=%.5f", deg, rmse)
+        if rmse < best_rmse:
+            best_rmse, best_model, best_poly, best_deg = rmse, model, poly, deg
+
+    compressor_data['regression_model'] = {
+        'degree': best_deg,
+        'poly_features': best_poly,
+        'model': best_model,
+        'rmse': best_rmse
+    }
+    logger.info("Selected polynomial degree %d for efficiency regression (RMSE=%.5f)", best_deg, best_rmse)
+
+
+# The below routine is a guide on how to fit the surge line.
+def _fit_surge_spline(compressor_data):
+    """Fit cubic spline to surge boundary (min flow per speed line)."""
+    speed_lines = compressor_data['speed_lines']
+    surge_pts = [(min(line['data'], key=lambda p: p['mass_flow'])['PR'],
+                  min(line['data'], key=lambda p: p['mass_flow'])['mass_flow'])
+                 for line in speed_lines]
+    surge_pts.sort(key=lambda x: x[0])
+    prs, flows = zip(*surge_pts)
+    spline = UnivariateSpline(prs, flows, k=3, s=0)
+    compressor_data['surge_spline'] = spline
+    logger.info("Surge spline fitted with %d knots", len(spline.get_knots()))
+
+
+#Below could be used to interpolate efficiency at a particular flow and pressure ratio
+def interpolate_efficiency(compressor_data, flow_kg_s, pr):
+    cfm = flow_kg_s / (CFM_TO_M3_S * AIR_DENSITY)  # reverse conversion
+    poly = compressor_data['regression_model']['poly_features']
+    model = compressor_data['regression_model']['model']
+    Xp = poly.transform([[cfm, pr]])
+    return float(model.predict(Xp)[0])
+
+
+# Example of a plotting routine. 
+def plot_map(compressor_data):
+    """Plot speed lines, efficiency contours, surge line, and regression deviation heatmap."""
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 10), constrained_layout=True)
+
+    # Plot speed lines
+    for line in compressor_data['speed_lines']:
+        fl = [pt['mass_flow'] for pt in line['data']]
+        pr = [pt['PR'] for pt in line['data']]
+        ax1.plot(fl, pr, label=f"Line {compressor_data['speed_lines'].index(line) + 1}")
+
+    # Define CFM grid for interpolation (regression model input)
+    cfm_min = min(pt['flow_cfm'] for line in compressor_data['speed_lines'] for pt in line['data'])
+    cfm_max = max(pt['flow_cfm'] for line in compressor_data['speed_lines'] for pt in line['data'])
+    cfms = np.linspace(cfm_min, cfm_max, 60)
+    prs = np.linspace(
+        min(pt['PR'] for line in compressor_data['speed_lines'] for pt in line['data']),
+        max(pt['PR'] for line in compressor_data['speed_lines'] for pt in line['data']),
+        60
+    )
+
+    # Evaluate efficiency in (CFM, PR) space
+    F_cfm, P = np.meshgrid(cfms, prs)
+    X_grid = np.vstack([F_cfm.ravel(), P.ravel()]).T
+    poly = compressor_data['regression_model']['poly_features']
+    model = compressor_data['regression_model']['model']
+    E_pred = model.predict(poly.transform(X_grid)).reshape(F_cfm.shape)
+    E_pred = np.clip(E_pred, 0, 100)  # clamp to valid physical range
+
+    # Convert to kg/s for plotting
+    F_kg_s = F_cfm * CFM_TO_M3_S * AIR_DENSITY
+    from matplotlib import cm
+    from scipy.spatial import Delaunay
+
+    # Build mask from actual flow_cfm / PR data
+    X_data = np.array([[pt['flow_cfm'], pt['PR']] for line in compressor_data['speed_lines'] for pt in line['data']])
+    tri = Delaunay(X_data)
+
+    # Create mask: True if (cfm, PR) is inside the convex hull
+    mask = tri.find_simplex(np.c_[F_cfm.ravel(), P.ravel()]) >= 0
+    mask = mask.reshape(F_cfm.shape)
+
+    # Clip efficiency and mask out-of-bound regions
+    E_pred = np.clip(E_pred, 0, 100)
+    E_masked = np.where(mask, E_pred, np.nan)
+    #cs = ax1.contour(F_kg_s, P, E_pred, levels=10)
+    cs = ax1.contour(F_kg_s, P, E_masked, levels=np.linspace(np.nanmin(E_masked), np.nanmax(E_masked), 12), cmap=cm.viridis)
+
+    fig.colorbar(cs, ax=ax1, label='Efficiency (%)')
+
+    # Plot surge line
+    surge_flows = [interpolate_surge_flow(compressor_data, p) for p in prs]
+    ax1.plot(surge_flows, prs, 'k--', label='Surge')
+
+    # Axis labels and title
+    ax1.set_xlabel('Mass flow (kg/s)')
+    ax1.set_ylabel('Pressure ratio')
+    ax1.set_title('Compressor Map')
+    ax1.legend()
+
+    # Deviation heatmap from actual data
+    X_actual = np.array([[pt['flow_cfm'], pt['PR']] for line in compressor_data['speed_lines'] for pt in line['data']])
+    y_actual = np.array([pt['Efficiency'] for line in compressor_data['speed_lines'] for pt in line['data']])
+    y_pred = model.predict(poly.transform(X_actual))
+    error = np.abs(y_pred - y_actual)
+
+    X_actual_kg_s = np.array([pt['mass_flow'] for line in compressor_data['speed_lines'] for pt in line['data']])
+    PR_actual = np.array([pt['PR'] for line in compressor_data['speed_lines'] for pt in line['data']])
+    sc = ax2.scatter(X_actual_kg_s, PR_actual, c=error, cmap='hot', edgecolor='k')
+    fig.colorbar(sc, ax=ax2, label='|Regression Error|')
+
+    ax2.set_xlabel('Mass flow (kg/s)')
+    ax2.set_ylabel('Pressure ratio')
+    ax2.set_title('Regression Deviation Map')
+
+    plt.show()
+
+
+
