@@ -242,6 +242,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self.table.setModel(self.model)
         v.addWidget(self.table, 1)
 
+        # --- NEW: footer row for weighted average ---
+        footer = QtWidgets.QHBoxLayout()
+        footer.addStretch(1)
+        self.lbl_avg = QtWidgets.QLabel("Weighted Avg Eff: –")
+        self.lbl_avg.setStyleSheet("font-weight: 600; padding: 4px;")
+        footer.addWidget(self.lbl_avg, 0)
+        v.addLayout(footer)
+        # --- END NEW ---
+
+
         self.dock.setWidget(host)
         self.dock.setMinimumWidth(320)
         self.dock.setMaximumWidth(800)
@@ -406,6 +416,17 @@ class MainWindow(QtWidgets.QMainWindow):
             cmin = self.spin_cmin.value(); cmax = self.spin_cmax.value(); cstep = self.spin_cstep.value()
             levels = np.arange(cmin, cmax + 1e-9, cstep)
             cs = self.ax.contour(F_plot, P, E_masked, levels=levels, cmap="viridis", linewidths=0.7, alpha=0.8)
+
+            # --- NEW: contour labels ---
+            levels_to_label = cs.levels[::2] if len(cs.levels) > 6 else cs.levels
+            def percent_fmt(v): return f"{v:.0f}%"
+            lbls = self.ax.clabel(cs, levels=levels_to_label, inline=True,
+                                  inline_spacing=5, fontsize=9, fmt=percent_fmt)
+            import matplotlib.patheffects as pe
+            for t in lbls:
+                t.set_path_effects([pe.withStroke(linewidth=2.0, foreground="white")])
+            # --- END NEW ---
+
             # thinner than speedlines, inline labels
             for ln,label in zip(speedlines, labels):
                 xdata, ydata = ln.get_xdata(), ln.get_ydata()
@@ -427,7 +448,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.ax.scatter(xs, ys, color="black", marker="s", s=46, alpha=0.85)
 
             avg = weighted_avg_eff(rows)
-            self.status.showMessage(f"Weighted Avg Eff: {avg:.2f}%")
+           # self.status.showMessage(f"Weighted Avg Eff: {avg:.2f}%")
+            self.lbl_avg.setText(f"Weighted Avg Eff: {avg:.2f}%")
+
         else:
             # Still compute average for status
             rows = compute_generic_rows(self.cmap, GENERIC_SETS.get(self.current_set_name, []))
