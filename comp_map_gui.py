@@ -233,6 +233,10 @@ class App(tk.Tk):
         self._build_topbar()
         self._build_plot_and_table()
 
+        # Clean shutdown handlers
+        self.protocol("WM_DELETE_WINDOW", self.on_quit)
+        self.bind("<Control-q>", lambda e: self.on_quit())
+
     # ---------------- UI build ----------------
     def _build_topbar(self) -> None:
         bar = ttk.Frame(self)
@@ -263,7 +267,14 @@ class App(tk.Tk):
         ttk.Entry(bar, textvariable=self.cstep_var, width=6).pack(side=tk.LEFT)
         ttk.Button(bar, text="Redraw", command=self.redraw).pack(side=tk.LEFT, padx=6)
 
-        # Export
+        # Toggle: show/hide generic points on the plot
+        self.show_points_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(bar, text="Show Generic Points", variable=self.show_points_var, command=self.redraw).pack(
+            side=tk.LEFT, padx=(12, 0)
+        )
+
+        # Quit and Export
+        ttk.Button(bar, text="Quit", command=self.on_quit).pack(side=tk.RIGHT, padx=(6, 0))
         ttk.Button(bar, text="Export Table…", command=self.on_export).pack(side=tk.RIGHT)
 
     def _build_plot_and_table(self) -> None:
@@ -312,7 +323,8 @@ class App(tk.Tk):
 
     def on_update_generic(self) -> None:
         self.current_set_name = self.set_var.get()
-        self.update_table()
+        # Redraw so the plot reflects the newly selected set (if toggled on)
+        self.redraw()
 
     def on_export(self) -> None:
         if self.cmap is None:
@@ -333,6 +345,32 @@ class App(tk.Tk):
             messagebox.showinfo("Exported", f"Saved: {os.path.basename(path)}")
         except Exception as e:
             messagebox.showerror("Export failed", str(e))
+
+    def on_quit(self) -> None:
+        """Handle a clean shutdown of the application."""
+        try:
+            if not messagebox.askokcancel("Quit", "Do you want to quit?"):
+                return
+        except Exception:
+            # If messagebox fails for any reason, proceed to close
+            pass
+
+        # Try to close the Matplotlib figure explicitly
+        try:
+            if hasattr(self, "fig") and self.fig is not None:
+                plt.close(self.fig)
+        except Exception:
+            pass
+
+        # Destroy the Tk application
+        try:
+            self.destroy()
+        except Exception:
+            # As a fallback, quit the main loop
+            try:
+                self.quit()
+            except Exception:
+                pass
 
     # ---------------- Plotting & Table ----------------
     def redraw(self) -> None:
@@ -374,6 +412,14 @@ class App(tk.Tk):
             self.ax.clabel(cs, inline=True, fontsize=8, fmt="%d")
         except Exception as e:
             logger.warning("Contour draw failed: %s", e)
+
+        # 4) Optional: plot generic points (in plotting units)
+        if self.show_points_var.get():
+            rows = self._compute_generic_rows()
+            xs = [r["flow_plot"] for r in rows]
+            ys = [r["pr"] for r in rows]
+            if xs and ys:
+                self.ax.scatter(xs, ys, color="black", marker="s", s=50, label="Generic Points")
 
         self.ax.set_xlabel("Flow (m.t^0.5/p)")
         self.ax.set_ylabel("Pressure Ratio")
@@ -434,4 +480,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -50,6 +50,7 @@ Workflow:
 - Pick a generic operating set from the dropdown (HD_WG or MD_WG).
   - Generic points are defined as % of max flow and % of max PR from the loaded map.
   - The table lists Flow (plot units), PR, interpolated efficiency, and weight, with a weighted average.
+  - Toggle "Show Generic Points" to overlay these points on the plot.
 - Export Table… saves the table and weighted average to CSV.
 
 
