@@ -4,6 +4,7 @@ Compressor Map Tools
 This repo contains:
 - scmap.py — Read/scale/write compressor maps in .fae format (FREE/FIXED I/O)
 - comp_map_gui.py — GUI to plot maps, draw efficiency contours, and evaluate generic points
+ - comp_map_qt.py — New PySide6 desktop UI (dockable panel, toolbar, sortable table)
 
 
 Requirements
@@ -16,6 +17,7 @@ Python packages:
 - scikit-learn
 - matplotlib
 - tkinter (usually included with system Python)
+ - PySide6 (for the new Qt UI)
 
 Install (example):
   pip install numpy scipy scikit-learn matplotlib
@@ -58,3 +60,24 @@ Units
 -----
 - Map flow values (.fae) are treated as CFM for modeling.
 - Plotting flow axis uses Flow_plot = CFM / 10.323 (per brief).
+
+
+Qt UI (New)
+-----------
+A modern PySide6 UI with a dockable right panel, compact toolbar, and a sortable zebra-striped table is available:
+
+  python comp_map_qt.py
+
+Shortcuts:
+- Ctrl+O: Open file dialog
+- R: Redraw
+- E: Export table to CSV
+- Ctrl+Q: Quit
+- F: Fit/autoscale plot
+- H: Toggle generic points visibility
+
+Notes:
+- The main plot remains central and large; the right dock is resizable (default ~360 px).
+- Contour controls now use spinboxes with debounced redraws.
+- Status bar shows the current map path and the weighted average efficiency.
+- UI state (last file, contours, dock, toggles) persists via QSettings.
