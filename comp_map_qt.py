@@ -391,7 +391,7 @@ class MainWindow(QtWidgets.QMainWindow):
         for sl in self.cmap.speed_lines:
             flows_plot = [p.flow_cfm / CFM_TO_PLOT_FLOW for p in sl.pts]
             prs = [p.pr for p in sl.pts]
-            ln, = self.ax.plot(flows_plot, prs, marker="o", lw=1.1, alpha=0.9)
+            ln, = self.ax.plot(flows_plot, prs, marker="", lw=1.1, alpha=0.9)
             speedlines.append(ln); labels.append(f"{sl.rpm:.0f}")
 
         # Boundary via convex hull (plot units)
