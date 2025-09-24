@@ -331,7 +331,7 @@ class MainWindow(QtWidgets.QMainWindow):
         try:
             with open(path, "w", newline="", encoding="utf-8") as f:
                 w = csv.writer(f)
-                w.writerow(["Flow_plot(m.t^0.5/p)", "PR", "Efficiency(%)", "Weight"])
+                w.writerow(["Flow_plot(m.\u221At/p)", "PR", "Efficiency(%)", "Weight"])
                 for r in rows:
                     w.writerow([f"{r['flow_plot']:.3f}", f"{r['pr']:.3f}", f"{r['eff']:.2f}", f"{r['w']:.3f}"])
                 w.writerow([])
@@ -415,7 +415,7 @@ class MainWindow(QtWidgets.QMainWindow):
             F_plot = F_cfm / CFM_TO_PLOT_FLOW
             cmin = self.spin_cmin.value(); cmax = self.spin_cmax.value(); cstep = self.spin_cstep.value()
             levels = np.arange(cmin, cmax + 1e-9, cstep)
-            cs = self.ax.contour(F_plot, P, E_masked, levels=levels, cmap="viridis", linewidths=0.7, alpha=0.8)
+            cs = self.ax.contour(F_plot, P, E_masked, levels=levels, cmap="jet", linewidths=0.7, alpha=0.8)
 
             # --- NEW: contour labels ---
             levels_to_label = cs.levels[::2] if len(cs.levels) > 6 else cs.levels
@@ -457,7 +457,7 @@ class MainWindow(QtWidgets.QMainWindow):
             avg = weighted_avg_eff(rows)
             self.status.showMessage(f"Weighted Avg Eff: {avg:.2f}%")
 
-        self.ax.set_xlabel("Flow (m.t^0.5/p)")
+        self.ax.set_xlabel("Flow (m.\u221At/p)")
         self.ax.set_ylabel("Pressure Ratio")
         self.ax.set_title(self.cmap.title)
         self.ax.grid(True, which="both", alpha=0.18)
