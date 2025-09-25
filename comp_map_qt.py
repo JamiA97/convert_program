@@ -50,6 +50,118 @@ from comp_logic import (
 )
 
 
+# ---------------- In‑app Help Content (HTML) ----------------
+HELP_HTML = """
+<html>
+  <head>
+    <meta charset='utf-8'>
+    <style>
+      body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+      h1, h2 { margin: 0.2em 0 0.4em; }
+      h1 { font-size: 18px; }
+      h2 { font-size: 15px; margin-top: 1.0em; }
+      ul { margin-top: 0.25em; }
+      li { margin: 0.1em 0; }
+      code { background: #f1f1f5; padding: 1px 4px; border-radius: 3px; }
+    </style>
+  </head>
+  <body>
+    <h1>Compressor Map Plotter — Help</h1>
+
+    <h2>Overview</h2>
+    <ul>
+      <li>Visualize compressor maps (.fae) with speed lines and a boundary outline.</li>
+      <li>Fit and display efficiency contours via polynomial regression.</li>
+      <li>Evaluate <em>generic operating sets</em> and compute weighted average efficiency.</li>
+      <li>Batch‑rank a folder of maps and export results to CSV.</li>
+    </ul>
+
+    <h2>Quick Start</h2>
+    <ul>
+      <li>Open a map: toolbar <b>Open</b> (or <code>Ctrl+O</code>), then <b>Load</b>.</li>
+      <li>Choose a <b>Generic Set</b> from the right dock.</li>
+      <li>Toggle <b>Show Generic Points</b> to overlay evaluation points and see weighted average.</li>
+      <li>Adjust contour <b>Min/Max/Step</b> and <b>Redraw</b> (<code>R</code>) to update.</li>
+      <li>Export the generic points table to CSV (<code>E</code>).</li>
+      <li>Batch‑rank a folder: <b>Batch Folder</b> → pick a directory with <code>.fae</code> files.</li>
+    </ul>
+
+    <h2>Viewing Maps</h2>
+    <ul>
+      <li>Central plot shows <b>Flow (m.√t/p)</b> vs <b>Pressure Ratio (PR)</b>, by speed line.</li>
+      <li>Flow axis uses: <code>Flow_plot = CFM / 10.323</code>.</li>
+      <li>A light boundary outline is drawn from the convex hull of map points.</li>
+      <li>Hover the plot to see live readout: Flow, PR, and predicted efficiency.</li>
+    </ul>
+
+    <h2>Efficiency Contours</h2>
+    <ul>
+      <li>App fits a polynomial regression (degree 2–5, auto‑selected by RMSE) over (flow_cfm, PR) → efficiency.</li>
+      <li>Use <b>Min/Max/Step</b> to choose contour levels; labels render inline.</li>
+      <li>Contours outside the data’s convex hull are masked.</li>
+    </ul>
+
+    <h2>Generic Operating Sets</h2>
+    <ul>
+      <li>A set is a list of points defined by (% of max flow, % of max PR, weight).</li>
+      <li>The app computes efficiency at each point and shows Flow (plot units), PR, Eff (%), and Weight.</li>
+      <li>The weighted average efficiency for the set is shown below the table.</li>
+    </ul>
+
+    <h2>Table &amp; Export</h2>
+    <ul>
+      <li>Sortable table lists evaluated generic points; select rows and <b>Copy</b>.</li>
+      <li>Export the table to CSV (<code>E</code>).</li>
+    </ul>
+
+    <h2>Batch Folder Analysis</h2>
+    <ul>
+      <li>Evaluates all maps in a chosen folder for the selected Generic Set.</li>
+      <li>Ranks maps best → worst by weighted average efficiency and plots the best one.</li>
+      <li>Results window supports a <b>Show Top 5 only</b> toggle and CSV export.</li>
+      <li>Use toolbar <b>Top‑5 Prev/Next</b> to step through the top five.</li>
+    </ul>
+
+    <h2>Shortcuts</h2>
+    <ul>
+      <li><code>Ctrl+O</code>: Open file dialog</li>
+      <li><code>R</code>: Redraw</li>
+      <li><code>E</code>: Export table to CSV</li>
+      <li><code>Ctrl+Q</code>: Quit</li>
+      <li><code>F</code>: Fit/autoscale plot</li>
+      <li><code>H</code>: Toggle generic points visibility</li>
+      <li><code>F1</code>: Help</li>
+    </ul>
+
+    <h2>Units</h2>
+    <ul>
+      <li>Map flow values are treated as CFM for modeling.</li>
+      <li>Plotting axis uses <code>Flow_plot = CFM / 10.323</code> (m.√t/p).</li>
+      <li>Efficiency is in percent; predicted values are clipped to [0, 100].</li>
+    </ul>
+
+    <h2>Custom Generic Sets</h2>
+    <ul>
+      <li>JSON search order: <code>GENERIC_SETS_FILE</code> env var → <code>./generic_sets.json</code> → next to code → <code>~/.config/CompressorMapPlotter/generic_sets.json</code>.</li>
+      <li>Format: <code>{"SET": [[flow_pct, pr_pct, weight], ...]}</code>.</li>
+      <li>Built‑in defaults are used if none found.</li>
+    </ul>
+
+    <h2>Settings</h2>
+    <ul>
+      <li>Window layout, last file, contour settings, points toggle, and selected set persist via QSettings.</li>
+    </ul>
+
+    <h2>Troubleshooting</h2>
+    <ul>
+      <li>If the table shows NaN or points don’t appear, ensure the generic points lie within the map’s convex hull.</li>
+      <li>Batch runs consider only top‑level <code>.fae/.txt</code> files in the chosen directory (non‑recursive).</li>
+    </ul>
+  </body>
+  </html>
+"""
+
+
 class MapTableModel(QtCore.QAbstractTableModel):
     headers = ["Flow", "PR", "Eff", "W"]
 
@@ -293,6 +405,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.act_redraw = make_action("Redraw", "media-playlist-repeat", self.redraw, "R", "Redraw plot")
         self.act_export = make_action("Export", "document-save-as", self._action_export, "E", "Export table to CSV")
         self.act_batch = make_action("Batch Folder", "folder", self._action_batch_folder, None, "Evaluate all maps in a folder")
+        self.act_help = make_action("Help", "help-contents", self._action_help, "F1", "Open Help")
         tb.addSeparator()
         self.act_quit = make_action("Quit", "application-exit", self.close, "Ctrl+Q", "Quit application")
 
@@ -540,6 +653,10 @@ class MainWindow(QtWidgets.QMainWindow):
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Load error", str(e))
 
+    def _action_help(self) -> None:
+        dlg = HelpDialog(self)
+        dlg.exec()
+
     def _navigate_top(self, delta: int) -> None:
         if not self._top_paths:
             return
@@ -681,6 +798,26 @@ class BatchResultsDialog(QtWidgets.QDialog):
             QtWidgets.QMessageBox.information(self, "Saved", f"Report written to:\n{path}")
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Export failed", str(e))
+
+
+class HelpDialog(QtWidgets.QDialog):
+    def __init__(self, parent: QtWidgets.QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Help — Compressor Map Plotter")
+        self.resize(800, 640)
+
+        v = QtWidgets.QVBoxLayout(self)
+        view = QtWidgets.QTextBrowser()
+        view.setOpenExternalLinks(True)
+        view.setHtml(HELP_HTML)
+        v.addWidget(view, 1)
+
+        row = QtWidgets.QHBoxLayout()
+        row.addStretch(1)
+        btn_close = QtWidgets.QPushButton("Close")
+        btn_close.clicked.connect(self.accept)
+        row.addWidget(btn_close)
+        v.addLayout(row)
 
 
 def main() -> int:
