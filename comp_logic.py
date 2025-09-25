@@ -70,6 +70,8 @@ class CompMap:
     # (optional) surge spline flow(PR) in plotting units if desired later
     surge_spline: Optional[UnivariateSpline] = None
 
+    # feature scaling for regression inputs: (x_min, x_max) for [flow_cfm, pr]
+    scaling: Optional[Tuple[np.ndarray, np.ndarray]] = None
 
 # --------------------------------------------------------------------------------------
 # Generic operating point sets (Flow%, PR%, Weight)
@@ -234,6 +236,13 @@ def fit_efficiency_regression(cmap: CompMap, degree_min: int = 2, degree_max: in
     X = np.vstack([flows, prs]).T
     y = np.array(effs)
 
+    # --- Normalise inputs to [-1, 1] for numerical stability ---
+    x_min = X.min(axis=0)
+    x_max = X.max(axis=0)
+    rng = np.maximum(x_max - x_min, 1e-12)  # protect against zero range
+    X_scaled = 2.0 * (X - x_min) / rng - 1.0
+
+
     best_rmse = np.inf
     best_model = None
     best_poly = None
@@ -241,7 +250,8 @@ def fit_efficiency_regression(cmap: CompMap, degree_min: int = 2, degree_max: in
 
     for deg in range(degree_min, degree_max + 1):
         poly = PolynomialFeatures(deg)
-        Xp = poly.fit_transform(X)
+        #Xp = poly.fit_transform(X)
+        Xp = poly.fit_transform(X_scaled)  # use scaled inputs
         model = LinearRegression().fit(Xp, y)
         preds = model.predict(Xp)
         rmse = float(np.sqrt(np.mean((preds - y) ** 2)))
@@ -253,13 +263,24 @@ def fit_efficiency_regression(cmap: CompMap, degree_min: int = 2, degree_max: in
     cmap.lin_model = best_model
     cmap.poly_degree = best_deg
     cmap.rmse = best_rmse
+    cmap.scaling = (x_min, x_max)  # save scaling for inference
     logger.info("Selected polynomial degree %s (RMSE=%.5f)", best_deg, best_rmse)
 
 
 def predict_efficiency(cmap: CompMap, flow_cfm: float, pr: float) -> float:
     if cmap.poly_features is None or cmap.lin_model is None:
         raise RuntimeError("Regression model not fitted")
-    Xp = cmap.poly_features.transform([[flow_cfm, pr]])
+    #Xp = cmap.poly_features.transform([[flow_cfm, pr]])
+    # Apply stored scaling if available
+    X_raw = np.array([[flow_cfm, pr]], dtype=float)
+    if getattr(cmap, "scaling", None):
+        x_min, x_max = cmap.scaling
+        rng = np.maximum(x_max - x_min, 1e-12)
+        X_scaled = 2.0 * (X_raw - x_min) / rng - 1.0
+    else:
+        X_scaled = X_raw
+    Xp = cmap.poly_features.transform(X_scaled)
+
     val = float(cmap.lin_model.predict(Xp)[0])
     return float(np.clip(val, 0.0, 100.0))
 
@@ -284,8 +305,17 @@ def contour_data(cmap: CompMap, n: int = 80) -> Tuple[np.ndarray, np.ndarray, np
     cfms = np.linspace(fmin, fmax, n)
     pr_grid = np.linspace(pmin, pmax, n)
     F_cfm, P = np.meshgrid(cfms, pr_grid)
+    #X = np.vstack([F_cfm.ravel(), P.ravel()]).T
+    #E = cmap.lin_model.predict(cmap.poly_features.transform(X)).reshape(F_cfm.shape)
     X = np.vstack([F_cfm.ravel(), P.ravel()]).T
-    E = cmap.lin_model.predict(cmap.poly_features.transform(X)).reshape(F_cfm.shape)
+    if getattr(cmap, "scaling", None):
+        x_min, x_max = cmap.scaling
+        rng = np.maximum(x_max - x_min, 1e-12)
+        X_scaled = 2.0 * (X - x_min) / rng - 1.0
+    else:
+        X_scaled = X
+    E = cmap.lin_model.predict(cmap.poly_features.transform(X_scaled)).reshape(F_cfm.shape)
+
     E = np.clip(E, 0.0, 100.0)
     mask = compute_convex_hull_mask(cmap, F_cfm, P)
     E_masked = np.where(mask, E, np.nan)
