@@ -615,8 +615,8 @@ class BatchResultsDialog(QtWidgets.QDialog):
         # Table
         self.table = QtWidgets.QTableWidget()
         self.table.setAlternatingRowColors(True)
-        self.table.setColumnCount(6)
-        self.table.setHorizontalHeaderLabels(["Rank", "WeightedEff(%)", "Title", "File", "RMSE", "Path"])
+        self.table.setColumnCount(7)
+        self.table.setHorizontalHeaderLabels(["Rank", "WeightedEff(%)", "MaxEff(%)", "Title", "File", "RMSE", "Path"])
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.ResizeToContents)
         v.addWidget(self.table, 1)
@@ -646,9 +646,11 @@ class BatchResultsDialog(QtWidgets.QDialog):
             path = str(r.get("path", ""))
             rmse = float(r.get("rmse", float("nan")))
             fn = os.path.basename(path)
+            max_eff = float(r.get("max_eff", float("nan")))
             items = [
                 QtWidgets.QTableWidgetItem(str(i+1)),
                 QtWidgets.QTableWidgetItem(f"{we:.2f}"),
+                QtWidgets.QTableWidgetItem(f"{max_eff:.2f}"),
                 QtWidgets.QTableWidgetItem(title),
                 QtWidgets.QTableWidgetItem(fn),
                 QtWidgets.QTableWidgetItem(f"{rmse:.5f}"),
@@ -657,7 +659,8 @@ class BatchResultsDialog(QtWidgets.QDialog):
             # Align numeric columns
             items[0].setTextAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
             items[1].setTextAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
-            items[4].setTextAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
+            items[2].setTextAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
+            items[5].setTextAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
             for c, it in enumerate(items):
                 self.table.setItem(i, c, it)
 

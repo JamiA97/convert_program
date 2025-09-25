@@ -237,6 +237,10 @@ def evaluate_map_weighted_eff(path: str, set_def: List[Tuple[float, float, float
     fit_efficiency_regression(cmap)
     rows = compute_generic_rows(cmap, set_def)
     avg = weighted_avg_eff(rows)
+
+    # Compute max efficiency from raw data
+    max_eff = max((p.eff for sl in cmap.speed_lines for p in sl.pts), default=float("nan"))
+
     return {
         "path": os.path.abspath(path),
         "title": cmap.title,
@@ -245,6 +249,7 @@ def evaluate_map_weighted_eff(path: str, set_def: List[Tuple[float, float, float
         "rmse": float(cmap.rmse) if cmap.rmse is not None else float("nan"),
         "ns": len(cmap.speed_lines),
         "nr": len(cmap.speed_lines[0].pts) if cmap.speed_lines else 0,
+        "max_eff": float(max_eff),
     }
 
 
@@ -297,11 +302,12 @@ def write_batch_csv(path: str, results: List[Dict[str, object]]) -> None:
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     with open(path, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
-        w.writerow(["Rank", "WeightedEff(%)", "Title", "Path", "RMSE", "NS", "NR"])
+        w.writerow(["Rank", "WeightedEff(%)", "MaxEff(%)", "Title", "Path", "RMSE", "NS", "NR"])
         for i, r in enumerate(results, start=1):
             w.writerow([
                 i,
                 f"{float(r.get('weighted_eff', float('nan'))):.2f}",
+                f"{float(r.get('max_eff', float('nan'))):.2f}",
                 str(r.get("title", "")),
                 str(r.get("path", "")),
                 f"{float(r.get('rmse', float('nan'))):.5f}",
