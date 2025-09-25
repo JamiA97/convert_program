@@ -108,7 +108,12 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # State
         self.cmap = None
-        self.current_set_name = "HD_WG"
+        # Prefer HD_WG if available, else first available set, else empty
+        try:
+            first_key = next(iter(GENERIC_SETS.keys())) if GENERIC_SETS else ""
+        except Exception:
+            first_key = ""
+        self.current_set_name = "HD_WG" if "HD_WG" in GENERIC_SETS else first_key
         self._debounce_timer = QtCore.QTimer(self)
         self._debounce_timer.setSingleShot(True)
         self._debounce_timer.timeout.connect(self.redraw)
@@ -183,7 +188,9 @@ class MainWindow(QtWidgets.QMainWindow):
         set_row.addWidget(QtWidgets.QLabel("Generic set:"))
         self.set_combo = QtWidgets.QComboBox()
         self.set_combo.addItems(list(GENERIC_SETS.keys()))
-        self.set_combo.setCurrentText(self.current_set_name)
+        if self.current_set_name:
+            self.set_combo.setCurrentText(self.current_set_name)
+        self.set_combo.setEnabled(bool(GENERIC_SETS))
         self.set_combo.currentTextChanged.connect(self._on_generic_changed)
         set_row.addWidget(self.set_combo, 1)
         v.addLayout(set_row)

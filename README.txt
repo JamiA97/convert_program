@@ -93,3 +93,26 @@ Evaluate a whole folder of maps and rank by weighted efficiency of the selected 
 - Use the toolbar buttons "Top-5 Prev" / "Top-5 Next" to step through the top five maps.
 - The results window has a "Show Top 5 only" toggle to quickly focus the list.
 - Changing the Generic Set will automatically re-run the last batch evaluation and refresh the ranking.
+
+
+Generic Sets (JSON)
+-------------------
+The list of generic operating point sets is configurable via a JSON file. Each set is a list of triples: [flow_pct, pr_pct, weight]. The app tries to load JSON at startup in this order:
+
+- Env var path: `GENERIC_SETS_FILE`
+- Current working directory: `./generic_sets.json`
+- Next to the code: `generic_sets.json` (same folder as comp_logic.py)
+- User config: `~/.config/CompressorMapPlotter/generic_sets.json`
+
+If no valid JSON is found, built-in defaults are used.
+
+Example `generic_sets.json`:
+
+  {
+    "HD_WG": [[0.7, 0.7, 0.3], [0.6, 0.6, 0.3], [0.5, 0.4, 0.4]],
+    "MD_WG": [[0.7, 0.7, 0.3], [0.5, 0.6, 0.3], [0.4, 0.4, 0.4]]
+  }
+
+Notes:
+- The UI will populate the Generic Set dropdown from the loaded JSON.
+- If a previously saved set name is not present in the JSON, the first available set is selected.

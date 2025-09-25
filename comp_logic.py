@@ -7,8 +7,9 @@ from __future__ import annotations
 
 import math
 import logging
+import json
 from dataclasses import dataclass
-from typing import List, Tuple, Optional, Dict
+from typing import List, Tuple, Optional, Dict, Any
 
 import numpy as np
 from scipy.spatial import Delaunay
@@ -72,20 +73,116 @@ class CompMap:
 
 # --------------------------------------------------------------------------------------
 # Generic operating point sets (Flow%, PR%, Weight)
+#
+# Moved to external JSON with safe fallback to defaults below.
 # --------------------------------------------------------------------------------------
 
-GENERIC_SETS: Dict[str, List[Tuple[float, float, float]]] = {
-    "HD_WG": [
-        (0.7, 0.7, 0.3),
-        (0.6, 0.6, 0.3),
-        (0.5, 0.4, 0.4),
+# Default built-in sets used when JSON missing/invalid
+DEFAULT_GENERIC_SETS: Dict[str, List[Tuple[float, float, float]]] = {
+    "OH_HD_SCR": [
+        (0.7, 0.66, 0.3),
+        (0.52, 0.53, 0.3),
+        (0.3, 0.34, 0.4),
     ],
-    "MD_WG": [
-        (0.7, 0.7, 0.3),
-        (0.5, 0.6, 0.3),
-        (0.4, 0.4, 0.4),
+    "OH_HD_EGR": [
+        (0.57, 0.66, 0.4),
+        (0.43, 0.47, 0.3),
+        (0.17, 0.28, 0.3),
     ],
+    "OH_MR_SCR": [
+        (0.67, 0.60, 0.33),
+        (0.49, 0.55, 0.33),
+        (0.42, 0.43, 0.33),
+    ]
 }
+
+
+def _validate_generic_sets(obj: Any) -> Dict[str, List[Tuple[float, float, float]]]:
+    """Validate/normalize JSON-loaded generic sets structure.
+
+    Expected shape: { name: [[flow_pct, pr_pct, weight], ...], ... }
+    Returns a dict mapping str -> list[tuple(float, float, float)] or raises ValueError.
+    """
+    if not isinstance(obj, dict):
+        raise ValueError("Top-level JSON must be an object/dict")
+    out: Dict[str, List[Tuple[float, float, float]]] = {}
+    for k, v in obj.items():
+        if not isinstance(k, str):
+            raise ValueError("Set names must be strings")
+        if not isinstance(v, list):
+            raise ValueError(f"Set '{k}' must be a list")
+        triplets: List[Tuple[float, float, float]] = []
+        for idx, item in enumerate(v):
+            if (not isinstance(item, (list, tuple))) or len(item) != 3:
+                raise ValueError(f"Set '{k}' entry {idx} must be a list of 3 numbers")
+            try:
+                f, p, w = float(item[0]), float(item[1]), float(item[2])
+            except Exception as e:
+                raise ValueError(f"Set '{k}' entry {idx} must be numeric: {e}")
+            triplets.append((f, p, w))
+        out[k] = triplets
+    return out
+
+
+def _load_generic_sets_from_file(path: Path) -> Dict[str, List[Tuple[float, float, float]]]:
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    return _validate_generic_sets(data)
+
+
+def load_generic_sets() -> Dict[str, List[Tuple[float, float, float]]]:
+    """Load generic sets from JSON with fallbacks.
+
+    Search order:
+      1) Env var GENERIC_SETS_FILE (if set)
+      2) CWD: ./generic_sets.json
+      3) Next to this module: <repo>/generic_sets.json
+      4) User config: ~/.config/CompressorMapPlotter/generic_sets.json
+    """
+    tried: List[str] = []
+
+    def try_path(p: Optional[Path]) -> Optional[Dict[str, List[Tuple[float, float, float]]]]:
+        if not p:
+            return None
+        try:
+            if p.is_file():
+                gs = _load_generic_sets_from_file(p)
+                logger.info("Loaded generic sets from: %s", p)
+                return gs
+            tried.append(str(p))
+        except Exception as e:
+            logger.warning("Failed to load generic sets from %s: %s", p, e)
+            tried.append(f"{p} (error)")
+        return None
+
+    # 1) Environment variable
+    env_path = os.environ.get("GENERIC_SETS_FILE")
+    if env_path:
+        res = try_path(Path(env_path))
+        if res is not None:
+            return res
+
+    # 2) CWD
+    res = try_path(Path.cwd() / "generic_sets.json")
+    if res is not None:
+        return res
+
+    # 3) Next to this module
+    res = try_path(Path(__file__).resolve().parent / "generic_sets.json")
+    if res is not None:
+        return res
+
+    # 4) User config
+    res = try_path(Path.home() / ".config" / "CompressorMapPlotter" / "generic_sets.json")
+    if res is not None:
+        return res
+
+    logger.info("Using built-in default generic sets (no valid JSON found)")
+    return DEFAULT_GENERIC_SETS
+
+
+# Load at import time so UIs get keys immediately
+GENERIC_SETS: Dict[str, List[Tuple[float, float, float]]] = load_generic_sets()
 
 
 # --------------------------------------------------------------------------------------
