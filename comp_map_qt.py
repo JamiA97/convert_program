@@ -45,6 +45,8 @@ from comp_logic import (
     weighted_avg_eff,
     GENERIC_SETS,
     CFM_TO_PLOT_FLOW,
+    batch_evaluate_folder,
+    write_batch_csv,
 )
 
 
@@ -110,6 +112,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self._debounce_timer = QtCore.QTimer(self)
         self._debounce_timer.setSingleShot(True)
         self._debounce_timer.timeout.connect(self.redraw)
+
+        # Batch/top-5 state
+        self._batch_results: List[Dict[str, object]] = []
+        self._top_paths: List[str] = []
+        self._top_index: int = -1
+        self._last_batch_folder: str | None = None
 
         # Status bar
         self.status = self.statusBar()
@@ -277,6 +285,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.act_load = make_action("Load", "view-refresh", self._action_load, None, "Load map into plot")
         self.act_redraw = make_action("Redraw", "media-playlist-repeat", self.redraw, "R", "Redraw plot")
         self.act_export = make_action("Export", "document-save-as", self._action_export, "E", "Export table to CSV")
+        self.act_batch = make_action("Batch Folder", "folder", self._action_batch_folder, None, "Evaluate all maps in a folder")
         tb.addSeparator()
         self.act_quit = make_action("Quit", "application-exit", self.close, "Ctrl+Q", "Quit application")
 
@@ -291,6 +300,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self.act_toggle_pts.setShortcut("H")
         self.act_toggle_pts.triggered.connect(lambda: self.chk_points.toggle())
         self.addAction(self.act_toggle_pts)
+
+        # Top-5 navigation (disabled until batch run)
+        self.act_top_prev = QtGui.QAction("Top-5 Prev", self)
+        self.act_top_next = QtGui.QAction("Top-5 Next", self)
+        self.act_top_prev.triggered.connect(lambda: self._navigate_top(delta=-1))
+        self.act_top_next.triggered.connect(lambda: self._navigate_top(delta=+1))
+        self.act_top_prev.setEnabled(False)
+        self.act_top_next.setEnabled(False)
+        tb.addAction(self.act_top_prev)
+        tb.addAction(self.act_top_next)
 
     def _build_shortcuts(self) -> None:
         # Redraw (R) and Export (E) already assigned; ensure redirection to slots
@@ -311,14 +330,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if not path:
             QtWidgets.QMessageBox.warning(self, "No file", "Please select a .fae map file.")
             return
-        try:
-            self.cmap = load_map(path)
-            fit_efficiency_regression(self.cmap)
-            self._save_last_file(path)
-            self.status.showMessage(f"Loaded: {path}")
-            self.redraw()
-        except Exception as e:
-            QtWidgets.QMessageBox.critical(self, "Load error", str(e))
+        self._load_map_into_plot(path)
 
     def _action_export(self) -> None:
         if self.cmap is None:
@@ -347,6 +359,45 @@ class MainWindow(QtWidgets.QMainWindow):
         except Exception:
             pass
 
+    def _action_batch_folder(self) -> None:
+        folder = QtWidgets.QFileDialog.getExistingDirectory(self, "Select folder of compressor maps")
+        if not folder:
+            return
+        self._last_batch_folder = folder
+        self._run_batch_on_folder(folder)
+
+    def _run_batch_on_folder(self, folder: str) -> None:
+        try:
+            set_def = GENERIC_SETS.get(self.current_set_name, [])
+            results = batch_evaluate_folder(folder, set_def)
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Batch error", str(e))
+            return
+        if not results:
+            QtWidgets.QMessageBox.information(self, "No results", "No valid maps found or evaluation failed.")
+            # Reset top-5 state
+            self._batch_results = []
+            self._top_paths = []
+            self._top_index = -1
+            self.act_top_prev.setEnabled(False)
+            self.act_top_next.setEnabled(False)
+            return
+        self._batch_results = results
+        # Prepare top-5 navigation
+        self._top_paths = [str(r.get("path", "")) for r in results[:5] if r.get("path")]
+        self._top_index = 0 if self._top_paths else -1
+        self.act_top_prev.setEnabled(len(self._top_paths) > 1)
+        self.act_top_next.setEnabled(len(self._top_paths) > 1)
+
+        # Load best map into plot
+        best_path = str(results[0].get("path"))
+        self.path_edit.setText(best_path)
+        self._load_map_into_plot(best_path)
+
+        # Show dialog with table + export
+        dlg = BatchResultsDialog(self, results)
+        dlg.exec()
+
     def _copy_selected(self) -> None:
         sel = self.table.selectionModel().selectedRows()
         if not sel:
@@ -367,6 +418,9 @@ class MainWindow(QtWidgets.QMainWindow):
     def _on_generic_changed(self, text: str) -> None:
         self.current_set_name = text
         self.redraw()
+        # Auto re-evaluate last batch folder (if any)
+        if self._last_batch_folder:
+            self._run_batch_on_folder(self._last_batch_folder)
 
     def _reset_contours(self) -> None:
         self.spin_cmin.setValue(50.0)
@@ -467,6 +521,32 @@ class MainWindow(QtWidgets.QMainWindow):
         self.model.setRows(rows)
         self.canvas.draw_idle()
 
+    # ---------------- Helpers ----------------
+    def _load_map_into_plot(self, path: str) -> None:
+        try:
+            self.cmap = load_map(path)
+            fit_efficiency_regression(self.cmap)
+            self._save_last_file(path)
+            self.status.showMessage(f"Loaded: {path}")
+            # Ensure points visibility remains as user set
+            self.redraw()
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Load error", str(e))
+
+    def _navigate_top(self, delta: int) -> None:
+        if not self._top_paths:
+            return
+        self._top_index = (self._top_index + delta) % len(self._top_paths)
+        path = self._top_paths[self._top_index]
+        if os.path.isfile(path):
+            self.path_edit.setText(path)
+            self._load_map_into_plot(path)
+        # Update enable state in case of single entry
+        self.act_top_prev.setEnabled(len(self._top_paths) > 1)
+        self.act_top_next.setEnabled(len(self._top_paths) > 1)
+
+    # (Batch results dialog moved below MainWindow class)
+
     # ---------------- Hover readout ----------------
     def _on_mpl_motion(self, event) -> None:
         if not event.inaxes:
@@ -511,6 +591,86 @@ class MainWindow(QtWidgets.QMainWindow):
         self.settings.setValue("display/points", self.chk_points.isChecked())
         self.settings.setValue("display/generic_set", self.current_set_name)
         super().closeEvent(e)
+
+
+class BatchResultsDialog(QtWidgets.QDialog):
+    """Modal dialog showing ranked batch results with export option and Top-5 toggle."""
+    def __init__(self, parent: QtWidgets.QWidget, results: List[Dict[str, object]]):
+        super().__init__(parent)
+        self.setWindowTitle("Batch Results: Ranked Weighted Efficiency")
+        self.resize(900, 520)
+        self._results: List[Dict[str, object]] = list(results)
+
+        v = QtWidgets.QVBoxLayout(self)
+
+        # Top bar with toggle
+        top_row = QtWidgets.QHBoxLayout()
+        self.chk_top5 = QtWidgets.QCheckBox("Show Top 5 only")
+        self.chk_top5.setToolTip("Toggle to only display the top five entries.")
+        self.chk_top5.toggled.connect(self._refresh_table)
+        top_row.addWidget(self.chk_top5)
+        top_row.addStretch(1)
+        v.addLayout(top_row)
+
+        # Table
+        self.table = QtWidgets.QTableWidget()
+        self.table.setAlternatingRowColors(True)
+        self.table.setColumnCount(6)
+        self.table.setHorizontalHeaderLabels(["Rank", "WeightedEff(%)", "Title", "File", "RMSE", "Path"])
+        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.ResizeToContents)
+        v.addWidget(self.table, 1)
+        self._refresh_table()
+
+        # Buttons
+        row = QtWidgets.QHBoxLayout()
+        row.addStretch(1)
+        btn_export = QtWidgets.QPushButton("Export CSV…")
+        btn_export.setToolTip("Export the full ordered list (best → worst) to CSV.")
+        btn_export.clicked.connect(self._export_csv)
+        btn_close = QtWidgets.QPushButton("Close")
+        btn_close.clicked.connect(self.accept)
+        row.addWidget(btn_export)
+        row.addWidget(btn_close)
+        v.addLayout(row)
+
+    def _current_results_view(self) -> List[Dict[str, object]]:
+        return self._results[:5] if self.chk_top5.isChecked() else self._results
+
+    def _refresh_table(self) -> None:
+        results = self._current_results_view()
+        self.table.setRowCount(len(results))
+        for i, r in enumerate(results):
+            we = float(r.get("weighted_eff", float("nan")))
+            title = str(r.get("title", ""))
+            path = str(r.get("path", ""))
+            rmse = float(r.get("rmse", float("nan")))
+            fn = os.path.basename(path)
+            items = [
+                QtWidgets.QTableWidgetItem(str(i+1)),
+                QtWidgets.QTableWidgetItem(f"{we:.2f}"),
+                QtWidgets.QTableWidgetItem(title),
+                QtWidgets.QTableWidgetItem(fn),
+                QtWidgets.QTableWidgetItem(f"{rmse:.5f}"),
+                QtWidgets.QTableWidgetItem(path),
+            ]
+            # Align numeric columns
+            items[0].setTextAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
+            items[1].setTextAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
+            items[4].setTextAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
+            for c, it in enumerate(items):
+                self.table.setItem(i, c, it)
+
+    def _export_csv(self) -> None:
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Save report CSV", filter="CSV (*.csv);;All files (*)")
+        if not path:
+            return
+        try:
+            # Export full ordered list regardless of toggle
+            write_batch_csv(path, self._results)
+            QtWidgets.QMessageBox.information(self, "Saved", f"Report written to:\n{path}")
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Export failed", str(e))
 
 
 def main() -> int:

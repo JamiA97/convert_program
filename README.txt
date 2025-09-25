@@ -81,3 +81,15 @@ Notes:
 - Contour controls now use spinboxes with debounced redraws.
 - Status bar shows the current map path and the weighted average efficiency.
 - UI state (last file, contours, dock, toggles) persists via QSettings.
+
+Batch Folder Analysis
+---------------------
+Evaluate a whole folder of maps and rank by weighted efficiency of the selected generic set.
+
+- Click "Batch Folder" on the toolbar, choose a directory containing .fae maps.
+- The app loads each map, fits efficiency, computes generic points, and ranks by weighted average.
+- The best map is automatically plotted. A results window lists all maps (best → worst).
+- Use "Export CSV…" in the results window to save the ordered report.
+- Use the toolbar buttons "Top-5 Prev" / "Top-5 Next" to step through the top five maps.
+- The results window has a "Show Top 5 only" toggle to quickly focus the list.
+- Changing the Generic Set will automatically re-run the last batch evaluation and refresh the ranking.

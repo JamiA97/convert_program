@@ -16,6 +16,9 @@ from sklearn.preprocessing import PolynomialFeatures
 from sklearn.linear_model import LinearRegression
 from scipy.interpolate import UnivariateSpline
 
+import os
+from pathlib import Path
+
 import scmap  # map I/O
 
 
@@ -219,3 +222,89 @@ def weighted_avg_eff(rows: List[Dict[str, float]]) -> float:
             den += r["w"]
     return num / den if den > 0 else float("nan")
 
+
+# --------------------------------------------------------------------------------------
+# Batch evaluation helpers
+# --------------------------------------------------------------------------------------
+
+def evaluate_map_weighted_eff(path: str, set_def: List[Tuple[float, float, float]]) -> Dict[str, object]:
+    """Load a map, fit efficiency model, compute generic rows and weighted efficiency.
+
+    Returns a dict with: { 'path', 'title', 'rows', 'weighted_eff', 'rmse', 'ns', 'nr' }
+    Raises exceptions for fatal errors so callers can handle/skip.
+    """
+    cmap = load_map(path)
+    fit_efficiency_regression(cmap)
+    rows = compute_generic_rows(cmap, set_def)
+    avg = weighted_avg_eff(rows)
+    return {
+        "path": os.path.abspath(path),
+        "title": cmap.title,
+        "rows": rows,
+        "weighted_eff": float(avg),
+        "rmse": float(cmap.rmse) if cmap.rmse is not None else float("nan"),
+        "ns": len(cmap.speed_lines),
+        "nr": len(cmap.speed_lines[0].pts) if cmap.speed_lines else 0,
+    }
+
+
+def iter_map_files(folder: str) -> List[str]:
+    """Return candidate map file paths under folder (non-recursive), filtered by extension.
+
+    Accepts typical extensions: .fae, .FAE, .txt (if used). Only files are returned.
+    """
+    exts = {".fae", ".FAE", ".txt", ".TXT"}
+    paths: List[str] = []
+    if not folder:
+        return paths
+    p = Path(folder)
+    if not p.is_dir():
+        return paths
+    for child in p.iterdir():
+        if child.is_file() and child.suffix in exts:
+            paths.append(str(child))
+    return sorted(paths)
+
+
+def batch_evaluate_folder(folder: str, set_def: List[Tuple[float, float, float]]) -> List[Dict[str, object]]:
+    """Evaluate all maps in the folder and return sorted results (best first).
+
+    Each item: { path, title, rows, weighted_eff, rmse, ns, nr }
+    Invalid or failed maps are skipped with logging warnings.
+    """
+    results: List[Dict[str, object]] = []
+    files = iter_map_files(folder)
+    if not files:
+        logger.warning("No candidate map files in folder: %s", folder)
+    for fpath in files:
+        try:
+            res = evaluate_map_weighted_eff(fpath, set_def)
+            if np.isnan(res["weighted_eff"]):
+                logger.warning("Weighted efficiency is NaN for %s; skipping", fpath)
+                continue
+            results.append(res)
+        except Exception as e:
+            logger.warning("Failed to evaluate %s: %s", fpath, e)
+            continue
+    # Sort best to worst by weighted_eff
+    results.sort(key=lambda d: d.get("weighted_eff", float("nan")), reverse=True)
+    return results
+
+
+def write_batch_csv(path: str, results: List[Dict[str, object]]) -> None:
+    """Write an ordered CSV report of results best→worst."""
+    import csv
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(["Rank", "WeightedEff(%)", "Title", "Path", "RMSE", "NS", "NR"])
+        for i, r in enumerate(results, start=1):
+            w.writerow([
+                i,
+                f"{float(r.get('weighted_eff', float('nan'))):.2f}",
+                str(r.get("title", "")),
+                str(r.get("path", "")),
+                f"{float(r.get('rmse', float('nan'))):.5f}",
+                int(r.get("ns", 0)),
+                int(r.get("nr", 0)),
+            ])
