@@ -441,3 +441,111 @@ def write_batch_csv(path: str, results: List[Dict[str, object]]) -> None:
                 int(r.get("ns", 0)),
                 int(r.get("nr", 0)),
             ])
+
+
+# --------------------------------------------------------------------------------------
+# 3D surface plotting (efficiency vs Flow & PR) with measured points overlay
+# --------------------------------------------------------------------------------------
+
+def plot_efficiency_surface_3d(
+    cmap: CompMap,
+    n: int = 80,
+    in_plot_units: bool = True,
+    ax=None,
+    show: bool = True,
+    save_path: Optional[str] = None,
+    surface_cmap: str = "viridis",
+):
+    """Plot a 3D efficiency surface of the fitted model and overlay measured points.
+
+    Parameters:
+    - cmap: CompMap with a fitted regression (call fit_efficiency_regression first).
+    - n: mesh resolution for the surface (n x n grid).
+    - in_plot_units: if True, X axis uses Flow_plot = CFM / 10.323. Otherwise uses CFM.
+    - ax: optional Matplotlib 3D axis to draw into; created if None.
+    - show: whether to call plt.show() at the end (no-op if ax provided and caller handles drawing).
+    - save_path: optional path to save the figure (PNG, etc.).
+    - surface_cmap: Matplotlib colormap name for the surface.
+
+    Returns: (fig, ax, surf) where surf is the Poly3DCollection from plot_surface.
+    """
+    if cmap.poly_features is None or cmap.lin_model is None:
+        raise RuntimeError("Regression model not fitted. Call fit_efficiency_regression(cmap) first.")
+
+    import numpy as _np
+    import numpy.ma as _ma
+    import matplotlib.pyplot as _plt
+    from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 - required for 3D projection
+
+    # Predict surface over the convex-hull bounded grid
+    F_cfm, P, E_masked, mask = contour_data(cmap, n=n)
+    X = F_cfm / CFM_TO_PLOT_FLOW if in_plot_units else F_cfm
+    Z = _ma.masked_invalid(E_masked)
+
+    created_fig = False
+    if ax is None:
+        fig = _plt.figure(figsize=(8.2, 6.4))
+        ax = fig.add_subplot(111, projection='3d')
+        created_fig = True
+    else:
+        # Try to recover parent fig
+        fig = ax.figure
+
+    # Draw surface
+    surf = ax.plot_surface(X, P, Z, cmap=surface_cmap, linewidth=0, antialiased=True, alpha=0.9)
+
+    # Overlay measured points (actual data)
+    flows = []
+    prs = []
+    effs = []
+    for sl in cmap.speed_lines:
+        for pt in sl.pts:
+            flows.append(pt.flow_cfm / CFM_TO_PLOT_FLOW if in_plot_units else pt.flow_cfm)
+            prs.append(pt.pr)
+            effs.append(pt.eff)
+    if flows:
+        ax.scatter(
+            _np.array(flows), _np.array(prs), _np.array(effs),
+            c='k', s=14, edgecolors='white', linewidths=0.5, alpha=0.95, depthshade=False, label='Measured points'
+        )
+
+    # Axes labels and ranges
+    ax.set_xlabel("Flow (m.√t/p)" if in_plot_units else "Flow (CFM)")
+    ax.set_ylabel("Pressure Ratio")
+    ax.set_zlabel("Efficiency (%)")
+
+    # Set reasonable limits based on data
+    if flows and prs and effs:
+        ax.set_xlim(min(flows), max(flows))
+        ax.set_ylim(min(prs), max(prs))
+        # Z from 0..100, but keep a small margin
+        zmin = max(0.0, min(min(effs), _np.nanmin(E_masked) if _np.isfinite(_np.nanmin(E_masked)) else 0.0))
+        zmax = min(100.0, max(max(effs), _np.nanmax(E_masked) if _np.isfinite(_np.nanmax(E_masked)) else 100.0))
+        ax.set_zlim(zmin, zmax)
+
+    # View angle and aesthetics
+    ax.view_init(elev=28, azim=-50)
+    ax.grid(True)
+    try:
+        cbar = fig.colorbar(surf, ax=ax, shrink=0.72, pad=0.08)
+        cbar.set_label("Efficiency (%)")
+    except Exception:
+        pass
+    try:
+        ax.legend(loc='upper left')
+    except Exception:
+        pass
+
+    fig.tight_layout()
+
+    if save_path:
+        try:
+            fig.savefig(save_path, bbox_inches='tight')
+            logger.info("Saved 3D surface plot to: %s", save_path)
+        except Exception as e:
+            logger.warning("Failed to save figure to %s: %s", save_path, e)
+
+    if created_fig and show:
+        _plt.show()
+
+    return fig, ax, surf

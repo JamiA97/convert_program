@@ -82,6 +82,24 @@ Notes:
 - Status bar shows the current map path and the weighted average efficiency.
 - UI state (last file, contours, dock, toggles) persists via QSettings.
 
+
+3D Surface Plot
+----------------
+Visualize the fitted efficiency surface in 3D and overlay the measured points to verify the contouring/interpolation quality.
+
+Generate the plot from a .fae map:
+
+  python plot3d_demo.py comp_map.fae --save surface.png
+
+Options:
+- --grid N: Surface grid resolution (default 80).
+- --units plot|cfm: X-axis units. "plot" uses Flow_plot = CFM/10.323 (matches the GUI). "cfm" uses raw CFM.
+- --no-show: Do not display the window (useful for save-only/headless runs).
+
+What you’ll see:
+- A colored 3D surface: the polynomial regression prediction of Efficiency(%) over Flow and PR, masked to the data’s convex hull.
+- Black markers: the actual measured map points (Flow, PR, Efficiency). Their alignment to the surface indicates modeling fidelity.
+
 Batch Folder Analysis
 ---------------------
 Evaluate a whole folder of maps and rank by weighted efficiency of the selected generic set.
